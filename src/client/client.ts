@@ -1,6 +1,6 @@
 
 import * as readline from 'node:readline';
-import conectarServidor from './connect.js';
+import connectToServer from './connect.js';
 
 const HOST = '127.0.0.1';
 const PORT = 5000;
@@ -10,9 +10,9 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-function perguntar(pergunta: string): Promise<string> {
+function askQuestion(question: string): Promise<string> {
     return new Promise((resolve) => {
-        rl.question(pergunta, resolve);
+        rl.question(question, resolve);
     });
 }
 
@@ -20,11 +20,11 @@ console.log('BEM VINDO AO CONVERSOR 2000: TXT PARA PDF');
 console.log('---------------------------------------');
 
 try {
-    const fileName = await perguntar(
+    const fileName = await askQuestion(
         'Insira o nome do arquivo com .txt no final: '
     );
 
-    await conectarServidor(
+    await connectToServer(
         fileName,
         HOST,
         PORT
