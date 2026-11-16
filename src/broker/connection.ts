@@ -88,9 +88,6 @@ class RabbitMQConnection {
     channel.sendToQueue(queue, Buffer.from(JSON.stringify(task)));
   }
 
-  async assertQueue(queueName: string, ){
-    
-  }
 }
 
 const mqConnection = new RabbitMQConnection();

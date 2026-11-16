@@ -1,4 +1,4 @@
 export enum FileFormatEnum {
-    TXT = 'txt',
-    PDF = 'pdf',
+    TXT = "txt",
+    PDF = "pdf",
 }
