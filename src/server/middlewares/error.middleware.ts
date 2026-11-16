@@ -3,6 +3,15 @@ import multer from 'multer';
 import { HttpStatusEnum } from '../../shared/enums/httpStatusEnum.js';
 import { FILE_TOO_LARGE_MESSAGE, MessagesEnum } from '../../shared/enums/messagesEnum.js';
 
+const errorStatuses = new Map<string, HttpStatusEnum>([
+    [MessagesEnum.INVALID_SOURCE_FORMAT, HttpStatusEnum.BAD_REQUEST],
+    [MessagesEnum.INVALID_TARGET_FORMAT, HttpStatusEnum.BAD_REQUEST],
+    [MessagesEnum.INVALID_TEXT_FILE, HttpStatusEnum.BAD_REQUEST],
+    [MessagesEnum.TASK_NOT_FOUND, HttpStatusEnum.NOT_FOUND],
+    [MessagesEnum.RESULT_NOT_FOUND, HttpStatusEnum.NOT_FOUND],
+    [MessagesEnum.TASK_NOT_COMPLETED, HttpStatusEnum.CONFLICT],
+]);
+
 export const handleError: ErrorRequestHandler = (error, _req, res, next) => {
     if (res.headersSent) {
         next(error);
@@ -17,6 +26,14 @@ export const handleError: ErrorRequestHandler = (error, _req, res, next) => {
                 : MessagesEnum.INVALID_UPLOAD,
         });
         return;
+    }
+
+    if (error instanceof Error) {
+        const status = errorStatuses.get(error.message);
+        if (status !== undefined) {
+            res.status(status).json({ erro: error.message });
+            return;
+        }
     }
 
     console.error(error);
