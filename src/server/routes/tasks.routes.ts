@@ -7,3 +7,5 @@ export const taskRoutes = Router();
 const taskController = new TaskController();
 
 taskRoutes.post('/', upload.single(UPLOAD_FIELDS.FILE), (req, res) => taskController.create(req, res));
+taskRoutes.get('/:id', (req, res) => taskController.show(req, res));
+taskRoutes.get('/:id/download', (req, res, next) => taskController.download(req, res, next));

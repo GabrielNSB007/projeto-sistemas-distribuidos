@@ -9,6 +9,10 @@ import type { Task } from './task.model.js';
 const tasks = new Map<string, Task>();
 const UPLOADS_DIR = path.resolve(UPLOADS_DIRECTORY);
 
+export function getTaskById(taskId: string): Task | undefined {
+    return tasks.get(taskId);
+}
+
 export async function createTask(fileName: string, file: Buffer): Promise<Task> {
     const taskId = randomUUID();
 
