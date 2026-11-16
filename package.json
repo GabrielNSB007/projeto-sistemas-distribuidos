@@ -2,10 +2,10 @@
   "name": "file-conversion",
   "version": "1.0.0",
   "description": "Sistema distribuído de conversão de arquivos TXT para PDF utilizando sockets TCP.",
-  "main": "dist/server/servidor.js",
+  "main": "dist/server/server.js",
   "scripts": {
     "build": "tsc",
-    "server": "tsx src/server/servidor.ts",
+    "server": "tsx src/server/server.ts",
     "client": "tsx src/client/client.ts"
   },
   "repository": {
