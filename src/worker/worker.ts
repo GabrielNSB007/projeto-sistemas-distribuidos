@@ -1,8 +1,7 @@
 
 import { readFile, mkdir } from "node:fs/promises";
-import { createWriteStream } from "node:fs";
 import path from "node:path";
-import PDFDocument from "pdfkit";
+import convertTxtToPdf from "../converters/txtToPdf.js";
 
 import queue from "../broker/queue.js";
 import {
@@ -15,28 +14,6 @@ import { TaskStatusEnum } from "../shared/enums/taskStatusEnum.js";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
 const CONVERTIDOS_DIR = path.resolve(process.cwd(), "convertidos");
-
-function generatePdf(
-  content: string,
-  outputPath: string
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const document = new PDFDocument();
-    const stream = createWriteStream(outputPath);
-
-    document.on("error", reject);
-    stream.on("error", reject);
-    stream.on("finish", resolve);
-
-    document.pipe(stream);
-
-    document.fontSize(12).text(content, {
-      align: "left",
-    });
-
-    document.end();
-  });
-}
 
 async function processTask(task: Task): Promise<void> {
   console.log(`Iniciando tarefa: ${task.task_id}`);
@@ -55,13 +32,13 @@ async function processTask(task: Task): Promise<void> {
   );
 
   try {
-    const content = await readFile(inputPath, "utf-8");
+    const file = await readFile(inputPath);
 
     await mkdir(CONVERTIDOS_DIR, {
       recursive: true,
     });
 
-    await generatePdf(content, outputPath);
+    await convertTxtToPdf(file, outputPath);
 
     task.status = TaskStatusEnum.COMPLETED;
     task.caminho_resultado = outputPath;
