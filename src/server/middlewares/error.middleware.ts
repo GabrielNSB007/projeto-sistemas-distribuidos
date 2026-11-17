@@ -4,6 +4,7 @@ import { HttpStatusEnum } from '../../shared/enums/httpStatusEnum.js';
 import { FILE_TOO_LARGE_MESSAGE, MessagesEnum } from '../../shared/enums/messagesEnum.js';
 
 const errorStatuses = new Map<string, HttpStatusEnum>([
+    [MessagesEnum.TASK_PUBLICATION_FAILED, HttpStatusEnum.SERVICE_UNAVAILABLE],
     [MessagesEnum.INVALID_SOURCE_FORMAT, HttpStatusEnum.BAD_REQUEST],
     [MessagesEnum.INVALID_TARGET_FORMAT, HttpStatusEnum.BAD_REQUEST],
     [MessagesEnum.INVALID_TEXT_FILE, HttpStatusEnum.BAD_REQUEST],

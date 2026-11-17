@@ -13,6 +13,32 @@ export function getTaskById(taskId: string): Task | undefined {
     return tasks.get(taskId);
 }
 
+export function markTaskAsFailed(taskId: string): void {
+    const task = tasks.get(taskId);
+    if (!task) return;
+    task.status = TaskStatusEnum.FAILED;
+    task.timestamps.finalizado_em = new Date().toISOString();
+}
+
+export function updateTaskResult(result: Task): void {
+    const task = tasks.get(result.task_id);
+    // Resultados de tarefas anteriores ao reinício não têm estado local recuperável.
+    if (!task) return;
+
+    if (result.status !== TaskStatusEnum.COMPLETED && result.status !== TaskStatusEnum.FAILED) {
+        throw new Error('Estado inválido no resultado da tarefa.');
+    }
+    if (!result.timestamps?.finalizado_em ||
+        (result.status === TaskStatusEnum.COMPLETED && !result.caminho_resultado)) {
+        throw new Error('Resultado de tarefa incompleto.');
+    }
+
+    task.status = result.status;
+    task.timestamps.iniciado_em = result.timestamps.iniciado_em;
+    task.timestamps.finalizado_em = result.timestamps.finalizado_em;
+    task.caminho_resultado = result.status === TaskStatusEnum.COMPLETED ? result.caminho_resultado : null;
+}
+
 export async function createTask(fileName: string, file: Buffer): Promise<Task> {
     const taskId = randomUUID();
 
