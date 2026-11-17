@@ -18,20 +18,22 @@ class Queue {
         channel.sendToQueue(
             queueName,
             Buffer.from(JSON.stringify(task)),
-            { persistent: true }
+            { persistent: true, contentType: "application/json" }
         );
     }
 
-    async consume(queueName: string, callback: (task: Task) => void) {
+    async consume(queueName: string, callback: (task: Task) => Promise<void> | void) {
         const channel = await this.createQueue(queueName);
 
-        await channel.consume(queueName, (msg) => {
+        await channel.prefetch(1);
+
+        await channel.consume(queueName, async (msg) => {
             if (!msg) return;
 
             try {
-                const content = JSON.parse(msg.content.toString());
+                const content: Task = JSON.parse(msg.content.toString());
 
-                callback(content);
+                await callback(content);
 
                 channel.ack(msg);
             } catch (error) {
