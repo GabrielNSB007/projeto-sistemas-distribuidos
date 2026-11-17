@@ -1,5 +1,4 @@
 import amqp, { type ChannelModel, type Channel } from "amqplib";
-import type { Task } from "../tasks/task.model.js";
 import { rmqUser, rmqPass, rmqHost, rmqPort } from "./config.js";
 
 class RabbitMQConnection {
@@ -80,12 +79,6 @@ class RabbitMQConnection {
       console.error("Não foi possível estabelecer conexão com RabbitMQ");
       throw error;
     }
-  }
-
-  async sendToQueue(queue: string, task: Task) {
-    const channel = await this.connect();
-
-    channel.sendToQueue(queue, Buffer.from(JSON.stringify(task)));
   }
 
 }
