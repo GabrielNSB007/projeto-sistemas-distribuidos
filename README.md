@@ -245,8 +245,6 @@ Exemplo de payload de `task_results` após sucesso:
 
 Em falha de conversão, o worker envia `status: FALHA`, `caminho_resultado: null` e timestamps preenchidos. A API atualiza os campos de resultado de uma tarefa existente; exige estado final, timestamp de finalização e caminho para resultados concluídos.
 
-O consumo usa `prefetch(1)` e confirmação manual: o `ack` ocorre depois do callback assíncrono. No worker, isso inclui aguardar a publicação do resultado. Se o callback lançar erro, a mensagem recebe `nack` sem recolocação na fila. Erros de conversão capturados pelo worker viram uma mensagem de resultado `FALHA`. Não há política de retries ou dead-letter queue configurada, nem garantia de processamento exatamente uma vez.
-
 ## Configuração e execução
 
 ### Pré-requisitos
