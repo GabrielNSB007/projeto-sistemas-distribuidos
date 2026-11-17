@@ -2,10 +2,10 @@
   "name": "file-conversion",
   "version": "1.0.0",
   "description": "Sistema distribuído de conversão de arquivos TXT para PDF utilizando sockets TCP.",
-  "main": "dist/server/servidor.js",
+  "main": "dist/server/server.js",
   "scripts": {
     "build": "tsc",
-    "server": "tsx src/server/servidor.ts",
+    "server": "tsx src/server/server.ts",
     "client": "tsx src/client/client.ts"
   },
   "repository": {
@@ -21,11 +21,20 @@
   },
   "homepage": "https://github.com/luismiguuel/file-conversion#readme",
   "dependencies": {
+    "amqplib": "^2.4.0",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "multer": "^2.5.0",
     "pdfkit": "^0.20.2"
   },
   "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
     "@types/node": "^26.6.5",
     "@types/pdfkit": "^0.17.7",
+    "nodemon": "^3.1.14",
+    "tsc-watch": "^7.2.1",
     "tsx": "^4.20.0",
     "typescript": "^7.0.2"
   }
