@@ -15,11 +15,17 @@ class Queue {
     async publish(queueName: string, task: Task) {
         const channel = await this.createQueue(queueName);
 
-        channel.sendToQueue(
-            queueName,
-            Buffer.from(JSON.stringify(task)),
-            { persistent: true, contentType: "application/json" }
-        );
+        await new Promise<void>((resolve, reject) => {
+            channel.sendToQueue(
+                queueName,
+                Buffer.from(JSON.stringify(task)),
+                { persistent: true, contentType: "application/json", messageId: task.task_id },
+                (error) => {
+                    if (error) reject(error);
+                    else resolve();
+                }
+            );
+        });
     }
 
     async consume(queueName: string, callback: (task: Task) => Promise<void> | void) {

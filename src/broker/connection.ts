@@ -1,12 +1,12 @@
-import amqp, { type ChannelModel, type Channel } from "amqplib";
+import amqp, { type ChannelModel, type ConfirmChannel } from "amqplib";
 import { rmqUser, rmqPass, rmqHost, rmqPort } from "./config.js";
 
 class RabbitMQConnection {
   private connection: ChannelModel | null = null;
-  private channel: Channel | null = null;
-  private connectionPromise: Promise<Channel> | null = null;
+  private channel: ConfirmChannel | null = null;
+  private connectionPromise: Promise<ConfirmChannel> | null = null;
 
-  async connect(): Promise<Channel> {
+  async connect(): Promise<ConfirmChannel> {
     if (this.channel) return this.channel;
 
     if (this.connectionPromise) {
@@ -22,7 +22,7 @@ class RabbitMQConnection {
     }
   }
 
-  private async createConnection(): Promise<Channel> {
+  private async createConnection(): Promise<ConfirmChannel> {
     let connection: ChannelModel | null = null;
 
     try {
@@ -46,7 +46,7 @@ class RabbitMQConnection {
         console.log("Conexão com RabbitMQ encerrada");
       });
 
-      this.channel = await connection.createChannel();
+      this.channel = await connection.createConfirmChannel();
 
       const channel = this.channel;
 
@@ -79,6 +79,10 @@ class RabbitMQConnection {
       console.error("Não foi possível estabelecer conexão com RabbitMQ");
       throw error;
     }
+  }
+
+  async close(): Promise<void> {
+    await this.connection?.close();
   }
 
 }

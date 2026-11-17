@@ -1,6 +1,7 @@
 import { UPLOAD_LIMITS } from '../constants/app.constants.js';
 
 export enum MessagesEnum {
+    TASK_PUBLICATION_FAILED = 'Não foi possível enfileirar a tarefa. Tente novamente mais tarde.',
     FILE_REQUIRED = 'Envie um arquivo TXT no campo arquivo.',
     INVALID_SOURCE_FORMAT = 'Somente arquivos .txt são aceitos.',
     INVALID_TARGET_FORMAT = 'O campo formato_destino deve ser pdf.',
