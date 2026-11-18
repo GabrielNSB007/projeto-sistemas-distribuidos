@@ -307,31 +307,43 @@ API e worker devem permanecer ativos durante o teste. O Compose atual executa **
 
 Em outro terminal, na raiz do projeto:
 
-```bash
-curl -i http://localhost:3000/health
-```
-
-Esperado: `200` e `{"status":"ok"}`.
-
 Envie o TXT de exemplo:
 
+Linux:
 ```bash
 curl -i -X POST http://localhost:3000/tasks \
   -F "arquivo=@teste.txt" \
   -F "formato_destino=pdf"
 ```
+Windows:
+```bash
+curl.exe -i -X POST http://localhost:3000/tasks `
+  -F "arquivo=@teste.txt" `
+  -F "formato_destino=pdf"
+```
 
 Esperado: `202` com o identificador. Copie esse valor:
 
+Linux:
 ```bash
 TASK_ID="COLE_O_TASK_ID_RETORNADO"
 curl -i "http://localhost:3000/tasks/$TASK_ID"
 ```
+Windows:
+```bash
+TASK_ID="COLE_O_TASK_ID_RETORNADO"
+curl.exe -i "http://localhost:3000/tasks/$TASK_ID"
+```
 
 Repita a consulta até aparecer `CONCLUÍDA`. O worker deve registrar a conclusão no terminal. Baixe o PDF:
 
+Linux:
 ```bash
 curl -f -o resultado.pdf "http://localhost:3000/tasks/$TASK_ID/download"
+```
+Windows:
+```bash
+curl.exe -f -o resultado.pdf "http://localhost:3000/tasks/$TASK_ID/download"
 ```
 
 Abra `resultado.pdf` e confira o conteúdo, os acentos e as quebras de linha em relação ao TXT. O arquivo gerado pelo worker também estará em `convertidos/<task_id>.pdf`.
@@ -357,9 +369,16 @@ Para verificar uma falha de conversão, com o worker parado, envie uma tarefa, r
 
 `src/test-rabbitmq.ts` publica uma tarefa fixa com ID `teste-001` na fila literal `task_queue`. Para também testar o worker, prepare o arquivo e mantenha o worker ativo:
 
+Linux:
 ```bash
 mkdir -p uploads
 cp teste.txt uploads/teste-001.txt
+npx tsx src/test-rabbitmq.ts
+```
+Windows:
+```bash
+mkdir uploads
+copy teste.txt uploads\teste-001.txt
 npx tsx src/test-rabbitmq.ts
 ```
 
