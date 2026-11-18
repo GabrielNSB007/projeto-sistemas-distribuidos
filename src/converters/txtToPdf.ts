@@ -11,7 +11,8 @@ export default function convertTxtToPdf(file: Buffer, outputPath: string): Promi
         document.on('error', reject);
 
         document.pipe(output);
-        document.fontSize(12).text(file.toString('utf-8'), { align: 'left' });
+        const text = file.toString('utf-8').replace(/\r\n?/g, '\n');
+        document.fontSize(12).text(text, { align: 'left' });
         document.end();
     });
 }
