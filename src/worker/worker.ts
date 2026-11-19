@@ -1,4 +1,3 @@
-
 import { readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import convertTxtToPdf from "../converters/txtToPdf.js";
@@ -10,46 +9,78 @@ import {
 } from "../broker/config.js";
 
 import type { Task } from "../tasks/task.model.js";
+import { FileFormatEnum } from "../shared/enums/fileFormatEnum.js";
 import { TaskStatusEnum } from "../shared/enums/taskStatusEnum.js";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
 const CONVERTIDOS_DIR = path.resolve(process.cwd(), "convertidos");
 
+type ConverterFn = (input: Buffer, outputPath: string) => Promise<void>;
+
+const CONVERTERS: Partial<Record<string, ConverterFn>> = {
+  [`${FileFormatEnum.TXT}:${FileFormatEnum.PDF}`]: convertTxtToPdf
+}
+
+function getConverter(task: Task): ConverterFn {
+  const key = `${task.formato_origem}:${task.formato_destino}`;
+  const converter = CONVERTERS[key];
+
+  if (!converter) {
+    throw new Error(
+      `Conversão não suportada: ${task.formato_origem} para ${task.formato_destino}`
+    );
+  }
+
+  return converter;
+}
+
 async function processTask(task: Task): Promise<void> {
-  console.log(`Iniciando tarefa: ${task.task_id}`);
+  console.log(`[Worker ${process.pid}] Iniciando tarefa: ${task.task_id} (${task.nome_arquivo})`);
 
   task.status = TaskStatusEnum.PROCESSING;
-  task.timestamps.iniciado_em = new Date().toISOString();
+  task.timestamps = {
+    criado_em: task.timestamps?.criado_em ?? new Date().toISOString,
+    iniciado_em: new Date().toISOString(),
+    finalizado_em: null,
+  }
+
+  await queue.publish(RESULT_QUEUE, task);
+
+  const sourceExt = task.formato_origem.toLowerCase();
+  const targetExt = task.formato_destino.toLowerCase();
 
   const inputPath = path.join(
     UPLOAD_DIR,
     `${task.task_id}.txt`
   );
 
-  const outputPath = path.join(
+  const outputFileName = `${task.task_id}.${sourceExt}`
+
+  const outputFullPath = path.join(
     CONVERTIDOS_DIR,
-    `${task.task_id}.pdf`
+    outputFileName
   );
 
   try {
     const file = await readFile(inputPath);
+    const converter = getConverter(task);
 
     await mkdir(CONVERTIDOS_DIR, {
       recursive: true,
     });
 
-    await convertTxtToPdf(file, outputPath);
+    await converter(file, outputFullPath);
 
     task.status = TaskStatusEnum.COMPLETED;
-    task.caminho_resultado = outputPath;
+    task.caminho_resultado = path.join("convertidos", outputFileName);
 
-    console.log(`Tarefa ${task.task_id} concluída!`);
+    console.log(`[Worker ${process.pid}] Tarefa ${task.task_id} concluída!`);
   } catch (error) {
     task.status = TaskStatusEnum.FAILED;
     task.caminho_resultado = null;
 
     console.error(
-      `Erro ao processar tarefa ${task.task_id}:`,
+      `[Worker ${process.pid}] Erro ao processar tarefa ${task.task_id}:`,
       error
     );
   } finally {
@@ -60,14 +91,24 @@ async function processTask(task: Task): Promise<void> {
 }
 
 async function startWorker(): Promise<void> {
-  console.log("Iniciando worker...");
+  console.log(`[Worker ${process.pid}] Iniciando worker...`);
 
   await queue.consume(TASK_QUEUE, processTask);
 
-  console.log(`Worker aguardando tarefas em ${TASK_QUEUE}`);
+  console.log(`[Worker ${process.pid}] Aguardando tarefas em ${TASK_QUEUE}`);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, async () => {
+    console.log(`\n[Worker ${process.pid}] Sinal ${signal} recebido. Encerrando...`);
+    if (typeof queue.close === "function") {
+      await queue.close();
+    }
+    process.exit(0);
+  });
 }
 
 startWorker().catch((error) => {
-  console.error("Erro ao iniciar worker:", error);
+  console.error(`[Worker ${process.pid}] Erro ao iniciar worker:`, error);
   process.exit(1);
 });

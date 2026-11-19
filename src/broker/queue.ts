@@ -48,6 +48,10 @@ class Queue {
             }
         });
     }
+
+    async close(): Promise<void> {
+        await mqConnection.close();
+    }
 }
 
 const queue = new Queue();
