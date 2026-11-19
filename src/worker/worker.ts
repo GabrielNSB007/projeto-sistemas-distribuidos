@@ -39,7 +39,7 @@ async function processTask(task: Task): Promise<void> {
 
   task.status = TaskStatusEnum.PROCESSING;
   task.timestamps = {
-    criado_em: task.timestamps?.criado_em ?? new Date().toISOString,
+    criado_em: task.timestamps?.criado_em ?? new Date().toISOString(),
     iniciado_em: new Date().toISOString(),
     finalizado_em: null,
   }
@@ -51,10 +51,10 @@ async function processTask(task: Task): Promise<void> {
 
   const inputPath = path.join(
     UPLOAD_DIR,
-    `${task.task_id}.txt`
+    `${task.task_id}.${sourceExt}`
   );
 
-  const outputFileName = `${task.task_id}.${sourceExt}`
+  const outputFileName = `${task.task_id}.${targetExt}`
 
   const outputFullPath = path.join(
     CONVERTIDOS_DIR,
@@ -62,8 +62,9 @@ async function processTask(task: Task): Promise<void> {
   );
 
   try {
-    const file = await readFile(inputPath);
     const converter = getConverter(task);
+    const file = await readFile(inputPath);
+
 
     await mkdir(CONVERTIDOS_DIR, {
       recursive: true,
