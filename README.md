@@ -44,13 +44,13 @@ flowchart LR
 2. A API valida a requisição, gera um UUID, salva o original e cria uma tarefa `PENDENTE` em memória.
 3. A API publica a tarefa em `task_queue` e aguarda a confirmação do broker.
 4. A API responde `202 Accepted` com `task_id` e status, sem aguardar o worker.
-5. O worker consome a tarefa, registra localmente `PROCESSANDO` e o início do processamento.
+5. O worker consome a tarefa, adquire o lock pelo `task_id` e publica `PROCESSANDO` com o horário de início.
 6. O conversor lê o conteúdo UTF-8 e gera `convertidos/<task_id>.pdf`.
 7. O worker publica a tarefa atualizada em `task_results`, como `CONCLUÍDA` ou `FALHA`, e registra a data de finalização.
 8. A API consome o resultado e atualiza a tarefa no seu próprio `Map`.
 9. O cliente consulta a tarefa e, se concluída, baixa o PDF pela API.
 
-API e worker têm memórias independentes: as atualizações chegam à API pela fila de resultados. O worker atual publica apenas o resultado final; portanto, **`PROCESSANDO` existe no modelo e no worker, mas não aparece como atualização intermediária na consulta HTTP**.
+API e worker têm memórias independentes: as atualizações chegam à API pela fila de resultados. A API expõe `PROCESSANDO` na consulta HTTP enquanto a conversão estiver em andamento. Em tarefas rápidas, a consulta pode já retornar o estado final.
 
 ## Organização do código
 
@@ -130,9 +130,9 @@ uploads/<task_id>.txt
 convertidos/<task_id>.pdf
 ```
 
-O nome original não é utilizado como caminho físico do upload, e UUIDs permitem separar arquivos de tarefas com nomes iguais. API e worker devem executar **na mesma raiz do projeto**, com acesso aos mesmos diretórios. O resultado publicado pelo worker contém um caminho absoluto que a API precisa conseguir acessar.
+O nome original não é utilizado como caminho físico do upload, e UUIDs permitem separar arquivos de tarefas com nomes iguais. API e worker devem executar **na mesma raiz do projeto**, com acesso aos mesmos diretórios. O resultado publicado pelo worker contém um caminho relativo à raiz do projeto, que a API usa para localizar o PDF.
 
-**Decisão de persistência desta entrega:** os arquivos permanecem no disco; o estado das tarefas permanece apenas em memória. Reiniciar a API perde esse estado, sem reconstrução a partir dos arquivos ou das filas. Resultados de IDs desconhecidos são ignorados. Não há expiração ou limpeza automática dos arquivos, recuperação de tarefas nem suporte a múltiplas instâncias da API compartilhando o estado.
+**Decisão de persistência desta entrega:** os arquivos permanecem no disco; o estado das tarefas permanece apenas em memória. Reiniciar a API perde esse estado, sem reconstrução a partir dos arquivos ou das filas. Resultados de IDs desconhecidos são ignorados. Não há expiração ou limpeza automática dos arquivos, recuperação do estado após reiniciar a API nem suporte a múltiplas instâncias da API compartilhando o estado.
 
 ## Contrato HTTP
 
@@ -219,7 +219,7 @@ API e worker se comunicam por **AMQP**, usando as seguintes filas:
 | Fila padrão | Produtor | Consumidor | Conteúdo |
 | --- | --- | --- | --- |
 | `task_queue` | API | Worker | Objeto `Task` em estado `PENDENTE`. |
-| `task_results` | Worker | API | Objeto `Task` com resultado `CONCLUÍDA` ou `FALHA`. |
+| `task_results` | Worker | API | Objeto `Task` em `PROCESSANDO`, `CONCLUÍDA` ou `FALHA`. |
 
 Os nomes são configuráveis por `TASK_QUEUE` e `RESULT_QUEUE`. Ambas as filas são declaradas com `durable: true`; as mensagens são publicadas com `persistent: true`, `contentType: application/json` e `messageId` igual ao `task_id`. A publicação usa um canal de confirmação e aguarda a confirmação do broker.
 
@@ -239,11 +239,11 @@ Exemplo de payload de `task_results` após sucesso:
     "iniciado_em": "2026-11-17T18:00:01.000Z",
     "finalizado_em": "2026-11-17T18:00:02.000Z"
   },
-  "caminho_resultado": "/caminho/do/projeto/convertidos/1548d30a-4d6f-4b92-9f90-071e7d9ee0da.pdf"
+  "caminho_resultado": "convertidos/1548d30a-4d6f-4b92-9f90-071e7d9ee0da.pdf"
 }
 ```
 
-Em falha de conversão, o worker envia `status: FALHA`, `caminho_resultado: null` e timestamps preenchidos. A API atualiza os campos de resultado de uma tarefa existente; exige estado final, timestamp de finalização e caminho para resultados concluídos.
+Em falha de conversão, o worker envia `status: FALHA`, `caminho_resultado: null` e timestamps preenchidos. A API atualiza uma tarefa existente. Uma atualização final exige timestamp de finalização e, em caso de sucesso, o caminho do PDF.
 
 ## Configuração e execução
 
@@ -293,13 +293,15 @@ npm run server
 
 A API registra o consumidor de `task_results` antes de começar a escutar em **http://localhost:3000**. Se o RabbitMQ ainda não estiver pronto, a inicialização falha: aguarde o broker e execute o comando novamente.
 
-### Terminal 3 — Worker
+### Terminais 3 e 4 — Workers
 
 ```bash
 npx tsx src/worker/worker.ts
 ```
 
-Aguarde a mensagem `Worker aguardando tarefas em task_queue` (ou no nome configurado). Não há script `npm run worker` nesta versão.
+Execute o comando nos dois terminais, na mesma raiz do projeto e com a mesma configuração de filas. Aguarde o evento `worker.waiting_for_tasks` em cada terminal.
+
+Cada worker recebe uma tarefa por vez (`prefetch(1)`). Os workers compartilham `uploads/`, `convertidos/` e os locks em `uploads/.task-claims/`. O lock impede que dois workers convertam o mesmo `task_id` ao mesmo tempo, e o registro de conclusão permite ignorar duplicatas. Se o RabbitMQ reentregar a tarefa após a queda do worker, outro worker no mesmo computador pode recuperar o lock abandonado.
 
 API e worker devem permanecer ativos durante o teste. O Compose atual executa **somente o RabbitMQ**; ainda não há Dockerfile ou serviços para API e worker.
 
@@ -329,9 +331,9 @@ Linux:
 TASK_ID="COLE_O_TASK_ID_RETORNADO"
 curl -i "http://localhost:3000/tasks/$TASK_ID"
 ```
-Windows:
-```bash
-TASK_ID="COLE_O_TASK_ID_RETORNADO"
+Windows (PowerShell):
+```powershell
+$TASK_ID = "COLE_O_TASK_ID_RETORNADO"
 curl.exe -i "http://localhost:3000/tasks/$TASK_ID"
 ```
 
@@ -361,28 +363,25 @@ Abra `resultado.pdf` e confira o conteúdo, os acentos e as quebras de linha em 
 | Baixar uma tarefa pendente ou com falha | `409`. |
 | Baixar uma tarefa concluída com resultado disponível | `200` e PDF. |
 
-Para observar uma tarefa pendente, pare apenas o worker com `Ctrl+C`, envie um TXT e consulte o ID. A API responde `202`, a tarefa permanece `PENDENTE` e o download retorna `409`. Reinicie o worker para consumir a mensagem e concluir a conversão.
+Para observar uma tarefa pendente, pare todos os workers com `Ctrl+C`, envie um TXT e consulte o ID. A API responde `202`, a tarefa permanece `PENDENTE` e o download retorna `409`. Reinicie o worker para consumir a mensagem e concluir a conversão.
 
-Para verificar uma falha de conversão, com o worker parado, envie uma tarefa, remova somente o TXT de teste correspondente em `uploads/` e reinicie o worker. A tarefa deve terminar em `FALHA`, sem download disponível.
+Para verificar uma falha de conversão, com todos os workers parados, envie uma tarefa, remova somente o TXT de teste correspondente em `uploads/` e reinicie o worker. A tarefa deve terminar em `FALHA`, sem download disponível.
+
+### Teste de concorrência
+
+Com os dois workers ativos, repita o `POST /tasks` várias vezes em terminais diferentes. Consulte os IDs e baixe os PDFs como no exemplo acima. Compare `task_id` e `worker_pid` nos eventos `worker.processing_started` e `worker.conversion_succeeded` para acompanhar a distribuição das tarefas.
+
+`npm test` verifica a disputa pelo mesmo ID, a recuperação de um lock abandonado e a espera por um lock ativo. Os testes executam processos separados e simulam a conversão e a publicação, sem precisar do RabbitMQ.
 
 ### Teste isolado do broker
 
-`src/test-rabbitmq.ts` publica uma tarefa fixa com ID `teste-001` na fila literal `task_queue`. Para também testar o worker, prepare o arquivo e mantenha o worker ativo:
+Com o RabbitMQ e um worker ativos, execute na raiz do projeto:
 
-Linux:
 ```bash
-mkdir -p uploads
-cp teste.txt uploads/teste-001.txt
-npx tsx src/test-rabbitmq.ts
-```
-Windows:
-```bash
-mkdir uploads
-copy teste.txt uploads\teste-001.txt
 npx tsx src/test-rabbitmq.ts
 ```
 
-O worker deve gerar `convertidos/teste-001.pdf`. Esse teste ignora a API, não cadastra a tarefa no `Map` e, portanto, não permite consultá-la pela API. Se `TASK_QUEUE` tiver outro valor, o script de teste precisa ser adaptado para usar a mesma fila. O script mantém a conexão aberta; use `Ctrl+C` para encerrá-lo após a publicação.
+A cada execução, o script copia `teste.txt` para `uploads/<task_id>.txt`, publica na fila configurada em `TASK_QUEUE` e imprime o ID gerado. O worker deve gerar `convertidos/<task_id>.pdf`. Como o teste publica diretamente no broker, consulte o resultado no disco e nos logs do worker.
 
 ### Encerramento e diagnóstico
 
