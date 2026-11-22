@@ -1,5 +1,3 @@
-
-import { readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import convertTxtToPdf from "../converters/txtToPdf.js";
 
@@ -10,64 +8,69 @@ import {
 } from "../broker/config.js";
 
 import type { Task } from "../tasks/task.model.js";
-import { TaskStatusEnum } from "../shared/enums/taskStatusEnum.js";
+import { FileFormatEnum } from "../shared/enums/fileFormatEnum.js";
+import { logTaskLifecycle } from "../shared/logging/task-lifecycle.js";
+import { processTask, type ConverterFn } from "./task-processor.js";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
 const CONVERTIDOS_DIR = path.resolve(process.cwd(), "convertidos");
+const CLAIMS_DIR = path.resolve(UPLOAD_DIR, ".task-claims");
 
-async function processTask(task: Task): Promise<void> {
-  console.log(`Iniciando tarefa: ${task.task_id}`);
+const CONVERTERS: Partial<Record<string, ConverterFn>> = {
+  [`${FileFormatEnum.TXT}:${FileFormatEnum.PDF}`]: convertTxtToPdf
+};
 
-  task.status = TaskStatusEnum.PROCESSING;
-  task.timestamps.iniciado_em = new Date().toISOString();
+function getConverter(task: Task): ConverterFn {
+  const key = `${task.formato_origem}:${task.formato_destino}`;
+  const converter = CONVERTERS[key];
 
-  const inputPath = path.join(
-    UPLOAD_DIR,
-    `${task.task_id}.txt`
-  );
-
-  const outputPath = path.join(
-    CONVERTIDOS_DIR,
-    `${task.task_id}.pdf`
-  );
-
-  try {
-    const file = await readFile(inputPath);
-
-    await mkdir(CONVERTIDOS_DIR, {
-      recursive: true,
-    });
-
-    await convertTxtToPdf(file, outputPath);
-
-    task.status = TaskStatusEnum.COMPLETED;
-    task.caminho_resultado = outputPath;
-
-    console.log(`Tarefa ${task.task_id} concluída!`);
-  } catch (error) {
-    task.status = TaskStatusEnum.FAILED;
-    task.caminho_resultado = null;
-
-    console.error(
-      `Erro ao processar tarefa ${task.task_id}:`,
-      error
+  if (!converter) {
+    throw new Error(
+      `Conversão não suportada: ${task.formato_origem} para ${task.formato_destino}`
     );
-  } finally {
-    task.timestamps.finalizado_em = new Date().toISOString();
   }
 
-  await queue.publish(RESULT_QUEUE, task);
+  return converter;
+}
+
+async function handleTask(task: Task): Promise<void> {
+  await processTask(task, {
+    uploadsDirectory: UPLOAD_DIR,
+    resultsDirectory: CONVERTIDOS_DIR,
+    claimsDirectory: CLAIMS_DIR,
+    converterFor: getConverter,
+    publishResult: (result) => queue.publish(RESULT_QUEUE, result),
+  });
 }
 
 async function startWorker(): Promise<void> {
-  console.log("Iniciando worker...");
+  logTaskLifecycle('worker.started', null, { worker_pid: process.pid });
 
-  await queue.consume(TASK_QUEUE, processTask);
+  await queue.consume(TASK_QUEUE, handleTask);
 
-  console.log(`Worker aguardando tarefas em ${TASK_QUEUE}`);
+  logTaskLifecycle('worker.waiting_for_tasks', null, {
+    worker_pid: process.pid,
+    queue: TASK_QUEUE,
+  });
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, async () => {
+    logTaskLifecycle('worker.stopping', null, {
+      worker_pid: process.pid,
+      signal,
+    });
+    if (typeof queue.close === "function") {
+      await queue.close();
+    }
+    process.exit(0);
+  });
 }
 
 startWorker().catch((error) => {
-  console.error("Erro ao iniciar worker:", error);
+  logTaskLifecycle('worker.start_failed', null, {
+    worker_pid: process.pid,
+    error: error instanceof Error ? error.message : String(error),
+  }, 'error');
   process.exit(1);
 });
