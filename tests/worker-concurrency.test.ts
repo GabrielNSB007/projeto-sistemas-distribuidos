@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { claimTask } from '../src/worker/task-claim.js';
 
 type LogEntry = {
     event?: string;
@@ -132,6 +135,103 @@ test('workers de processos distintos processam uma vez por tarefa e isolam saíd
         const duplicateSkips = logs.filter((entry) => entry.event === 'worker.duplicate_skipped');
         assert.equal(duplicateSkips.length, 2, 'mensagens duplicadas devem ser ignoradas');
     } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('revalida conclusão depois de adquirir o lock', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'task-lock-race-'));
+    const taskId = randomUUID();
+    const first = await claimTask(taskId, root);
+    assert.ok(first.acquired);
+    const originalOpen = fsPromises.open;
+    const originalLink = fsPromises.link;
+    let reached!: () => void;
+    let resume!: () => void;
+    const ready = new Promise<void>((resolve) => { reached = resolve; });
+    const gate = new Promise<void>((resolve) => { resume = resolve; });
+    const pause = async (filePath: unknown) => {
+        if (String(filePath).endsWith('.lock')) {
+            reached();
+            await gate;
+        }
+    };
+    fsPromises.open = async (...args) => {
+        await pause(args[0]);
+        return originalOpen(...args);
+    };
+    fsPromises.link = async (...args) => {
+        await pause(args[1]);
+        return originalLink(...args);
+    };
+    syncBuiltinESMExports();
+    try {
+        const second = claimTask(taskId, root);
+        await ready;
+        await first.claim.complete();
+        resume();
+        const result = await second;
+        if (result.acquired) await result.claim.release();
+        assert.deepEqual(result, { acquired: false, reason: 'already_completed' });
+    } finally {
+        resume();
+        fsPromises.open = originalOpen;
+        fsPromises.link = originalLink;
+        syncBuiltinESMExports();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('workers concorrentes recuperam lock de processo encerrado sem duplicar conversão', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'task-lock-recovery-'));
+    const uploads = path.join(root, 'uploads');
+    const results = path.join(root, 'convertidos');
+    const claims = path.join(root, 'claims');
+    const taskId = randomUUID();
+    try {
+        await mkdir(uploads);
+        await writeFile(path.join(uploads, `${taskId}.txt`), 'recovery');
+        await runWorkerProcess(path.resolve('tests/fixtures/claim-process.ts'), process.cwd(), [claims, taskId]);
+        const args = [uploads, results, claims, taskId, '400'];
+        const processes = await Promise.allSettled(Array.from({ length: 4 }, () =>
+            runWorkerProcess(path.resolve('tests/fixtures/worker-process.ts'), process.cwd(), args),
+        ));
+        const logs = processes.flatMap((result) => {
+            if (result.status === 'rejected') throw result.reason;
+            return result.value;
+        });
+        assert.equal(logs.filter((entry) => entry.event === 'worker.processing_started').length, 1);
+        assert.equal(logs.filter((entry) => entry.event === 'worker.conversion_succeeded').length, 1);
+        assert.equal(await readFile(path.join(results, `${taskId}.pdf`), 'utf8'), 'converted:recovery');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('mensagem com lock ativo aguarda em vez de ser confirmada como duplicata', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'task-lock-wait-'));
+    const uploads = path.join(root, 'uploads');
+    const results = path.join(root, 'convertidos');
+    const claims = path.join(root, 'claims');
+    const taskId = randomUUID();
+    await mkdir(uploads);
+    await writeFile(path.join(uploads, `${taskId}.txt`), 'waiting');
+    const owner = await claimTask(taskId, claims);
+    assert.ok(owner.acquired);
+    let finished = false;
+    const pending = runWorkerProcess(path.resolve('tests/fixtures/worker-process.ts'), process.cwd(),
+        [uploads, results, claims, taskId, '50']);
+    void pending.then(() => { finished = true; }, () => { finished = true; });
+    try {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const returnedWhileLocked = finished;
+        await owner.claim.release();
+        const logs = await pending;
+        assert.equal(returnedWhileLocked, false);
+        assert.equal(logs.filter((entry) => entry.event === 'worker.conversion_succeeded').length, 1);
+    } finally {
+        await owner.claim.release();
+        await pending.catch(() => {});
         await rm(root, { recursive: true, force: true });
     }
 });
