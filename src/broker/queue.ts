@@ -1,4 +1,5 @@
 import type { Task } from "../tasks/task.model.js";
+import { logTaskLifecycle } from "../shared/logging/task-lifecycle.js";
 import mqConnection from "./connection.js";
 
 class Queue {
@@ -36,15 +37,32 @@ class Queue {
         await channel.consume(queueName, async (msg) => {
             if (!msg) return;
 
+            const taskId = msg.properties.messageId ?? null;
+            let content: Task;
             try {
-                const content: Task = JSON.parse(msg.content.toString());
-
-                await callback(content);
-
-                channel.ack(msg);
+                content = JSON.parse(msg.content.toString()) as Task;
             } catch (error) {
-                console.error("Erro ao processar mensagem:", error);
+                logTaskLifecycle('broker.message_rejected', taskId, {
+                    queue: queueName,
+                    error: error instanceof Error ? error.message : String(error),
+                }, 'error');
                 channel.nack(msg, false, false);
+                return;
+            }
+
+            try {
+                await callback(content);
+                channel.ack(msg);
+                logTaskLifecycle('broker.message_acknowledged', content.task_id, {
+                    queue: queueName,
+                });
+            } catch (error) {
+                logTaskLifecycle('broker.message_processing_failed', content.task_id, {
+                    queue: queueName,
+                    error: error instanceof Error ? error.message : String(error),
+                    requeued: true,
+                }, 'error');
+                channel.nack(msg, false, true);
             }
         });
     }

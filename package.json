@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "server": "tsx src/server/server.ts",
-    "client": "tsx src/client/client.ts"
+    "client": "tsx src/client/client.ts",
+    "test": "tsx --test tests/worker-concurrency.test.ts"
   },
   "repository": {
     "type": "git",
