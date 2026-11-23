@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { open, mkdir, readFile, unlink } from 'node:fs/promises';
+import { open, mkdir, readFile, unlink, writeFile, link } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -34,6 +34,53 @@ async function exists(filePath: string): Promise<boolean> {
     }
 }
 
+function ownerHasExited(record: ClaimRecord): boolean {
+    if (record.hostname !== os.hostname() || !Number.isInteger(record.pid) || record.pid <= 0) {
+        return false;
+    }
+    try {
+        process.kill(record.pid, 0);
+        return false;
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'ESRCH';
+    }
+}
+
+async function acquireLock(lockPath: string, recordPath: string): Promise<boolean> {
+    for (;;) {
+        try {
+            // O registro completo fica visível atomicamente, sem janela de lock vazio.
+            await link(recordPath, lockPath);
+            return true;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
+
+        let previous: ClaimRecord;
+        try {
+            previous = JSON.parse(await readFile(lockPath, 'utf8'));
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            throw error;
+        }
+        if (!ownerHasExited(previous)) return false;
+
+        // Serializa a recuperação deste dono; um recuperador encerrado também é recuperável.
+        const recoveryPath = `${lockPath}.${getTaskKey(previous.token)}.recovery`;
+        if (!await acquireLock(recoveryPath, recordPath)) return false;
+        try {
+            try {
+                const current: ClaimRecord = JSON.parse(await readFile(lockPath, 'utf8'));
+                if (current.token === previous.token) await unlink(lockPath);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            }
+        } finally {
+            await unlink(recoveryPath);
+        }
+    }
+}
+
 export async function claimTask(taskId: string, claimsDirectory: string): Promise<ClaimAttempt> {
     await mkdir(claimsDirectory, { recursive: true });
 
@@ -54,24 +101,15 @@ export async function claimTask(taskId: string, claimsDirectory: string): Promis
         claimed_at: new Date().toISOString(),
     };
 
-    let handle;
+    const recordPath = path.join(claimsDirectory, `${token}.claim`);
+    await writeFile(recordPath, JSON.stringify(record), { flag: 'wx' });
     try {
-        handle = await open(claimPath, 'wx');
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        if (!await acquireLock(claimPath, recordPath)) {
             return { acquired: false, reason: 'already_processing' };
         }
-        throw error;
+    } finally {
+        await unlink(recordPath);
     }
-
-    try {
-        await handle.writeFile(JSON.stringify(record));
-    } catch (error) {
-        await handle.close();
-        await unlink(claimPath);
-        throw error;
-    }
-    await handle.close();
 
     let released = false;
     const release = async (): Promise<void> => {
@@ -85,6 +123,11 @@ export async function claimTask(taskId: string, claimsDirectory: string): Promis
         await unlink(claimPath);
         released = true;
     };
+
+    if (await exists(completedPath)) {
+        await release();
+        return { acquired: false, reason: 'already_completed' };
+    }
 
     return {
         acquired: true,

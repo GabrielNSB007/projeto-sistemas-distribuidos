@@ -1,5 +1,6 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout } from 'node:timers/promises';
 import type { Task } from '../tasks/task.model.js';
 import { TaskStatusEnum } from '../shared/enums/taskStatusEnum.js';
 import { logTaskLifecycle } from '../shared/logging/task-lifecycle.js';
@@ -26,7 +27,12 @@ export async function processTask(
         worker_host: process.env.COMPUTERNAME ?? process.env.HOSTNAME ?? 'unknown',
     });
 
-    const attempt = await claimTask(task.task_id, options.claimsDirectory);
+    let attempt = await claimTask(task.task_id, options.claimsDirectory);
+    while (!attempt.acquired && attempt.reason === 'already_processing') {
+        // Mantém a mensagem sem ACK até a conclusão ou recuperação do dono anterior.
+        await setTimeout(100);
+        attempt = await claimTask(task.task_id, options.claimsDirectory);
+    }
     if (!attempt.acquired) {
         logTaskLifecycle('worker.duplicate_skipped', task.task_id, {
             reason: attempt.reason,
