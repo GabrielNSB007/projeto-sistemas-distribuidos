@@ -96,6 +96,21 @@ O middleware de erros traduz mensagens conhecidas de `MessagesEnum` para código
 
 O cliente em `src/client/` foi mantido como histórico da APS. **`npm run client` ainda utiliza TCP e não é compatível com a API HTTP atual.** Os exemplos de uso desta entrega utilizam `curl`.
 
+## Frontend web
+
+Com o RabbitMQ, a API e pelo menos um worker ativos, execute na raiz do repositório:
+
+```bash
+npm ci --prefix frontend
+npm run dev --prefix frontend
+```
+
+Abra **http://localhost:5173**. O Vite encaminha `/tasks` para a API em `http://localhost:3000`. Na interface, selecione um TXT ou clique em **Usar arquivo de exemplo** e depois em **Converter para PDF**. As tarefas aparecem em **Conversões recentes**, onde você pode consultar os detalhes e baixar os PDFs concluídos.
+
+O navegador guarda os IDs das tarefas e consulta a API ao recarregar a página. Como a API mantém as tarefas em memória, reiniciá-la faz com que as tarefas anteriores apareçam como indisponíveis.
+
+Para gerar o build, execute `npm run build --prefix frontend`. Se você servir `frontend/dist` fora do Vite, encaminhe a rota `/tasks` na mesma origem para a API Express.
+
 ## Modelagem do estado e armazenamento
 
 As tarefas ficam em um `Map<string, Task>` na API, indexadas pelo UUID.
