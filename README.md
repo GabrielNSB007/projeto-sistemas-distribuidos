@@ -55,61 +55,51 @@ API e worker têm memórias independentes: as atualizações chegam à API pela 
 ## Organização do código
 
 ```text
-src/
-├── server/
-│   ├── app.ts
-│   ├── server.ts
-│   ├── controllers/tasks.controller.ts
-│   ├── services/tasks.service.ts
-│   ├── routes/tasks.routes.ts
-│   └── middlewares/
-│       ├── upload.middleware.ts
-│       └── error.middleware.ts
-├── tasks/
-│   ├── task.model.ts
-│   └── task.service.ts
-├── broker/
-│   ├── config.ts
-│   ├── connection.ts
-│   └── queue.ts
-├── worker/worker.ts
-├── converters/txtToPdf.ts
-├── shared/
-│   ├── constants/app.constants.ts
-│   └── enums/
-├── client/
-└── test-rabbitmq.ts
-
-docker-compose.yml
-.env.example
-package.json
-package-lock.json
-tsconfig.json
-teste.txt
-uploads/
-convertidos/
+.
+├── frontend/
+│   ├── index.html
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── main.tsx
+│       ├── UploadForm.tsx
+│       ├── TaskItem.tsx
+│       ├── Icon.tsx
+│       ├── api.ts
+│       └── styles.css
+├── src/
+│   ├── server/
+│   │   ├── app.ts
+│   │   ├── server.ts
+│   │   ├── controllers/
+│   │   ├── services/
+│   │   ├── routes/
+│   │   └── middlewares/
+│   ├── tasks/
+│   ├── broker/
+│   ├── worker/
+│   ├── converters/
+│   ├── shared/
+│   ├── client/
+│   └── test-rabbitmq.ts
+├── tests/
+├── docker-compose.yml
+├── .env.example
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+├── teste.txt
+├── uploads/
+└── convertidos/
 ```
 
 O fluxo da API segue **Rotas → Controller → Service da API → Serviço de tarefas/Broker**. O controller concentra o HTTP; o serviço da API valida e coordena as operações; `tasks/task.service.ts` mantém o estado e os uploads. O worker importa o conversor, sem duplicar a implementação do PDFKit.
 
 O middleware de erros traduz mensagens conhecidas de `MessagesEnum` para códigos HTTP; falhas inesperadas recebem uma resposta genérica. Falhas durante a transmissão do download também são encaminhadas ao tratamento de erros quando necessário.
 
-O cliente em `src/client/` foi mantido como histórico da APS. **`npm run client` ainda utiliza TCP e não é compatível com a API HTTP atual.** Os exemplos de uso desta entrega utilizam `curl`.
-
-## Frontend web
-
-Com o RabbitMQ, a API e pelo menos um worker ativos, execute na raiz do repositório:
-
-```bash
-npm ci --prefix frontend
-npm run dev --prefix frontend
-```
-
-Abra **http://localhost:5173**. O Vite encaminha `/tasks` para a API em `http://localhost:3000`. Na interface, selecione um TXT ou clique em **Usar arquivo de exemplo** e depois em **Converter para PDF**. As tarefas aparecem em **Conversões recentes**, onde você pode consultar os detalhes e baixar os PDFs concluídos.
-
-O navegador guarda os IDs das tarefas e consulta a API ao recarregar a página. Como a API mantém as tarefas em memória, reiniciá-la faz com que as tarefas anteriores apareçam como indisponíveis.
-
-Para gerar o build, execute `npm run build --prefix frontend`. Se você servir `frontend/dist` fora do Vite, encaminhe a rota `/tasks` na mesma origem para a API Express.
+O frontend React fica em `frontend/`, com suas próprias dependências e configuração do Vite. O cliente em `src/client/` foi mantido como histórico da APS. **`npm run client` ainda utiliza TCP e não é compatível com a API HTTP atual.**
 
 ## Modelagem do estado e armazenamento
 
@@ -267,6 +257,7 @@ Em falha de conversão, o worker envia `status: FALHA`, `caminho_resultado: null
 - Node.js 22.18 ou superior compatível e npm.
 - Docker com o daemon em execução e Docker Compose.
 - Portas locais `3000`, `5672` e `15672` disponíveis.
+- Porta local `5173` disponível para o frontend.
 
 Execute os comandos na raiz do repositório. Instale as dependências e configure o ambiente:
 
@@ -320,7 +311,32 @@ Cada worker recebe uma tarefa por vez (`prefetch(1)`). Os workers compartilham `
 
 API e worker devem permanecer ativos durante o teste. O Compose atual executa **somente o RabbitMQ**; ainda não há Dockerfile ou serviços para API e worker.
 
+### Outro terminal — Frontend
+
+Com o RabbitMQ, a API e pelo menos um worker ativos, execute na raiz do repositório:
+
+```bash
+npm ci --prefix frontend
+npm run dev --prefix frontend
+```
+
+Abra **http://localhost:5173**. O Vite encaminha `/tasks` para a API em `http://localhost:3000`.
+
+Para gerar o build, execute `npm run build --prefix frontend`. Se você servir `frontend/dist` fora do Vite, encaminhe a rota `/tasks` na mesma origem para a API Express.
+
 ## Teste do fluxo completo
+
+### Pelo navegador
+
+1. Clique em **Usar arquivo de exemplo** e em **Converter para PDF**.
+2. Assim que o formulário liberar o envio, selecione ou arraste outro TXT e clique em **Converter para PDF** novamente. Confira se a conversão mais recente aparece primeiro na lista.
+3. Aguarde **PDF pronto**, expanda **Detalhes** e confira o ID e os horários. Clique em **Baixar PDF** no item do exemplo e abra o arquivo para conferir os acentos e as quebras de linha.
+4. Selecione um arquivo com outra extensão ou um TXT vazio. Confira a mensagem junto ao formulário e se **Converter para PDF** está desabilitado.
+5. Recarregue a página com a API ativa. Confira se as tarefas reaparecem e se os PDFs concluídos podem ser baixados.
+
+O navegador guarda os IDs e consulta a API ao recarregar. Como a API mantém as tarefas em memória, reiniciá-la faz com que as tarefas anteriores apareçam como **Tarefa indisponível**.
+
+### Pela API com `curl`
 
 Em outro terminal, na raiz do projeto:
 
